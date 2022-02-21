@@ -15,5 +15,5 @@ private:
 	FreeList _freeLists[FREE_LIST_SIZE];
 };
 
-//线程本地化存储
+//线程本地化存储(GCC编译需要链接动态库 -lpthread)
 static thread_local ThreadCache* pTLSThreadCache = nullptr;

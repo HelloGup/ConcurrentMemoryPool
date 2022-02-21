@@ -15,7 +15,8 @@ public:
 	//从中心缓存获取一定数量的对象给thread_cache,返回实际的数量
 	size_t FetchRangeObj(void*& start, void*& end, size_t batchNum/*需要的数量*/, size_t byte_size);
 
-	
+	//将一定数量的对象释放到span跨度内存里
+	void ReleaseListToSpans(void* start, size_t byte_size);
 private:
 	CentralCache() {}
 

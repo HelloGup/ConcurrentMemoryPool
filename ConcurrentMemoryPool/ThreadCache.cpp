@@ -6,7 +6,7 @@ void* ThreadCache::Allocate(size_t size) {
 	//¼ÆËã·ÖÅä¶àÉÙÄÚ´æ
 	size_t alignSize = SizeClass::RoundUp(size);
 	//¼ÆËã·ÖÅäµÄÄÚ´æ¿éÔÚ¹şÏ£µÄÄÄ¸öË÷Òı
-	size_t index = SizeClass::Index(size);//ÕâÀï½²¿ÎÓĞÎÊÌâ
+	size_t index = SizeClass::Index(size);
 
 	//×ÔÓÉÁ´±í²»Îª¿Õ£¬ÔòÊ¹ÓÃ×ÔÓÉÁ´±íµÄÄÚ´æ¿é
 	if (!_freeLists[index].Empty()) {
@@ -16,6 +16,15 @@ void* ThreadCache::Allocate(size_t size) {
 		return FetchFromCentralCache(index, alignSize);
 	}
 }
+
+void ListTooLong(FreeList& list, size_t size) {
+	void* start = nullptr;
+	void* end = nullptr;
+	list.PopRange(start, end, list.MaxSize());
+
+	CentralCache::GetInstance()->ReleaseListToSpans(start, size);
+}
+
 void ThreadCache::Deallocate(void* ptr, size_t size/*¸ù¾İ´óĞ¡È·¶¨Õâ¸öÄÚ´æ·ÅÔÚÄÄ¸öÍ°Àï*/) {
 	assert(size <= MAX_BYTES);//´óÓÚ256k²»Ó¦¸ÃÀ´ÕâÀïÊÍ·Å
 	assert(ptr);
@@ -23,7 +32,15 @@ void ThreadCache::Deallocate(void* ptr, size_t size/*¸ù¾İ´óĞ¡È·¶¨Õâ¸öÄÚ´æ·ÅÔÚÄÄ¸
 	//ÕÒ¶ÔÓ¦Ó³ÉäµÄ×ÔÓÉÁ´±íÍ°£¬²åÈë½øÈ¥
 	size_t index = SizeClass::Index(size);
 	_freeLists[index].push(ptr);
+
+	//Á´±í³¤¶È´óÓÚÒ»´ÎÅúÁ¿ÉêÇëµÄ¾Í¿ªÊ¼»ØÊÕ£¨Ò²¿ÉÒÔÔö¼Ó¸ù¾İ_freeListµÄ´óĞ¡À´»ØÊÕ£©
+	//»ØÊÕÄÚ´æ  Ö»ÊÇ»ØÊÕ×îºóÕâÒ»Åú£¬Ö®Ç°ÉêÇëµÄÃ»»ØÊÕ£¬²¢²»ÊÇÈ«²¿ÇåÍê
+	if (_freeLists[index].Size() >= _freeLists[index].MaxSize()) {
+		ListTooLong(_freeLists[index],size);
+	}
 }
+
+
 
 void* ThreadCache::FetchFromCentralCache(size_t index, size_t size) {
 	//...
@@ -52,9 +69,7 @@ void* ThreadCache::FetchFromCentralCache(size_t index, size_t size) {
 	}
 	else {
 		//startÒª·µ»Ø£¬´ÓstartµÄÏÂÒ»¸ö¿ªÊ¼Á´½ø×ÔÓÉÁ´±í 
-		_freeLists[index].PushRange(NextObj(start), end);
+		_freeLists[index].PushRange(NextObj(start), end, actualNum - 1/*Ò»¸öÒÑ¾­Ê¹ÓÃÁË*/);
 		return start;
 	}
-
-	return nullptr;
 }

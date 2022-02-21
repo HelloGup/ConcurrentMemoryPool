@@ -15,6 +15,7 @@ Span* CentralCache::GetOneSpan(SpanList& list, size_t byte_size) {
 
 	//没有可使用的span则向PageCache申请页
 	Span* span = PageCache::GetInstance()->NewSpan(SizeClass::NumMovePage(byte_size));
+	span->_isUse = true;
 
 	//将申请到的大块内存切分为_freeList小块内存
 	//char*方便+；大块内存的起始地址 = 起始页*页大小
@@ -78,8 +79,55 @@ size_t CentralCache::FetchRangeObj(void*& start, void*& end, size_t batchNum, si
 	//拿走的尾指向空
 	NextObj(end) = nullptr;
 
+	//增加已经使用的个数
+	span->_useCount += actualNum;
+
 	//解锁
 	_spanLists[index]._mtx.unlock();
 
 	return actualNum;
+}
+
+void CentralCache::ReleaseListToSpans(void* start, size_t byte_size) {
+	
+	//先根据大小计算出是哪一个链表，将其加锁
+	size_t index = SizeClass::Index(byte_size);
+	_spanLists[index]._mtx.lock();
+
+	while (start) {
+		void* next = NextObj(start);
+		
+		//根据当前指针查找出属于的span
+		Span* span = PageCache::GetInstance()->MapObjectToSpan(start);
+
+		//将其插入到span的_freeList中
+		NextObj(start) = span->_freeList;
+		span->_freeList = start;
+		
+		//使用计数减少，==0时说明该分配的所有的小块内存全部收回
+		--(span->_useCount);
+		if (span->_useCount == 0) {
+			//从当前链表移除
+			_spanLists[index].Erase(span);
+
+			span->_freeList = nullptr;
+			span->_next = nullptr;
+			span->_prev = nullptr;
+
+			//解锁 去PageCache回收时，解锁让其他线程也可以来释放
+			_spanLists[index]._mtx.unlock();
+
+			PageCache::GetInstance()->_mtx.lock();
+			PageCache::GetInstance()->ReleaseSpanToPageCache(span);
+			PageCache::GetInstance()->_mtx.unlock();
+
+			_spanLists[index]._mtx.lock();
+
+		}
+
+		//继续下一个
+		start = next;
+	}
+
+	_spanLists[index]._mtx.unlock();
 }

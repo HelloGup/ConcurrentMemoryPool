@@ -1,18 +1,18 @@
 #pragma once
 #include <iostream>
+#include <unordered_map>
 #include <vector>
 #include <assert.h>
 #include <thread>
 #include <mutex>
 #include <algorithm>
 
+#ifdef _WIN32
 //标准库中的min和max与<windows.h>中传统的min/max宏定义有冲突
 //在引用<windows.h>之前#define NOMINMAX，可以禁用windows.h中的min和max
 #define NOMINMAX
-#include <Windows.h>
-
-#ifdef _WIN32
 #include <Windows.h>//VirtualAlloc()
+
 #else
 #include <unistd.h> //sbrk()
 #include <sys/time.h> //linux下使用gettimeofday()函数计时
@@ -32,6 +32,7 @@ static const size_t PAGE_SHIFT = 13;
 
 inline static void* SystemAlloc(size_t kpage) {
 #ifdef _WIN32
+	//自动对齐
 	void* ptr = VirtualAlloc(0, kpage, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 
 #else
@@ -41,7 +42,8 @@ inline static void* SystemAlloc(size_t kpage) {
 	// int brk(void *addr);
 	// 这个函数的参数是一个地址，假如你已经知道了堆的起始地址，还有堆的大小
 	// 那么你就可以据此修改 brk() 中的地址参数已达到调整堆的目的。
-
+	
+	//会自动对齐
 	//void* sbrk(intptr_t increment);
 	/*当 increment 为正时，则按 increment 的大小(字节)，开辟内存空间，并返回开辟前，程序中断点（program break）的地址。
 	  当 increment 为负时，则按 increment 的大小(字节)，释放内存空间，并返回释放前，程序中断点的地址。
@@ -70,12 +72,14 @@ public:
 		assert(obj);
 		NextObj(obj) = _freeList;
 		_freeList = obj;
+		++_size;
 	}
 
 	//插入一个范围
-	void PushRange(void* start, void* end) {
+	void PushRange(void* start, void* end,size_t n) {
 		NextObj(end) = _freeList;
 		_freeList = start;
+		_size += n;
 	}
 
 	void* pop() {
@@ -84,7 +88,22 @@ public:
 		void* next = NextObj(_freeList);
 		_freeList = next;
 
+		--_size;
 		return obj;
+	}
+
+	//从头删除n个
+	void PopRange(void*& start, void*& end, size_t n) {
+		assert(n <= _size);
+		start = _freeList;
+		end = start;
+		size_t i = 0;
+		while (i < n - 1) {
+			end = NextObj(end);
+		}
+		_freeList = NextObj(end);
+		NextObj(end) = nullptr;
+		_size -= n;
 	}
 
 	bool Empty() {
@@ -96,9 +115,14 @@ public:
 		return _maxSize;
 	}
 
+	size_t Size() {
+		return _size;
+	}
+
 private:
 	void* _freeList = nullptr;
 	size_t _maxSize = 1;//慢开始阈值
+	size_t _size = 0;
 };
 
 
@@ -157,18 +181,18 @@ public:
 
 	//计算当前字节对应的自由链表中的下标
 	//普通写法
-	static inline size_t _Index(size_t bytes, size_t align) {
+	/*static inline size_t _Index(size_t bytes, size_t align) {
 		if (bytes % align == 0) {
 			return bytes / align - 1;
 		}
 		else {
 			return bytes / align;
 		}
-	}
+	}*/
 
-	//static inline size_t _Index(size_t bytes, size_t align_shift/*2的几次方*/) {
-	//	return ((bytes + (1 << align_shift) - 1) >> align_shift) - 1;
-	//}
+	static inline size_t _Index(size_t bytes, size_t align_shift/*2的几次方*/) {
+		return ((bytes + ((size_t)1 << align_shift) - 1) >> align_shift) - 1;
+	}
 
 	static inline size_t Index(size_t bytes) {
 		assert(bytes <= MAX_BYTES);
@@ -202,7 +226,7 @@ public:
 		//[2,512]:一次批量移动多少个对象的（慢启动）上下限值
 		//目标：小对象给的多 大对象给的少
 		//根据一个内存块可以有多少个单个对象，来判断给多少个
-		int num = MAX_BYTES / byte_size;
+		size_t num = MAX_BYTES / byte_size;
 		//最少给2个
 		if (num < 2) {
 			num = 2;
@@ -258,6 +282,8 @@ struct Span {
 	size_t _useCount = 0;//使用计数 ==0说明所有内存都还回来了，没有thread cache在使用
 
 	void* _freeList = nullptr;//切好的小块内存自由链表
+
+	bool _isUse = false;//是否被使用
 };
 
 //带头双向循环链表
