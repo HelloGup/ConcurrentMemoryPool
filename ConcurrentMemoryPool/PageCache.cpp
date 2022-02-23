@@ -3,7 +3,24 @@
 PageCache PageCache::_instance;
 
 Span* PageCache::NewSpan(size_t pageNum) {
-	assert(pageNum > 0 && pageNum < PAGE_LIST_SIZE);
+	assert(pageNum > 0);
+
+	//大于128页的使用系统申请
+	if (pageNum > PAGE_LIST_SIZE - 1) {
+		void* ptr = SystemAlloc(pageNum << PAGE_SHIFT);
+		
+		//使用定长内存池new
+		//Span* span = new Span;
+		Span* span = _spanPool.New();
+		//维护起始页和页数
+		span->_pageId = (PAGE_ID)ptr >> PAGE_SHIFT;
+		span->_n = pageNum;
+
+		//存入map
+		_idSpanMap[span->_pageId] = span;
+
+		return span;
+	}
 
 	//因为这里有一个递归调用，但是原先的锁资源的生命周期还没有到，应该使用递归锁
 	std::lock_guard<std::recursive_mutex> lock(PageCache::GetInstance()->_mtx);
@@ -23,7 +40,9 @@ Span* PageCache::NewSpan(size_t pageNum) {
 			Span* n_span = _spanLists[i].PopFront();
 			
 			//在n_span的头部切出一个pageNum页的span
-			Span* pageNum_span = new Span;
+			//Span* pageNum_span = new Span;
+			Span* pageNum_span = _spanPool.New();
+
 			//pageNum_span的起始页=n_span的起始页，页数就是需要的页数page_num;
 			pageNum_span->_pageId = n_span->_pageId;
 			pageNum_span->_n = pageNum;
@@ -52,7 +71,9 @@ Span* PageCache::NewSpan(size_t pageNum) {
 
 	//到这里说明pageNum往后都没有大块内存了
 	//这时候就在堆里申请一个128页的大块内存
-	Span* bigPage = new Span;
+	//Span* bigPage = new Span;
+	Span* bigPage = _spanPool.New();
+
 	void* ptr = SystemAlloc((PAGE_LIST_SIZE - 1) << PAGE_SHIFT);
 
 	//更新起始页和页数
@@ -82,6 +103,17 @@ Span* PageCache::MapObjectToSpan(void* ptr) {
 void PageCache::ReleaseSpanToPageCache(Span* span) {
 	//对span前后的页，尝试进行合并，缓解内存碎片的问题
 	
+	//如果是大于128页的，是向系统申请的，直接还给堆
+	if (span->_n > PAGE_LIST_SIZE - 1) {
+		void* ptr = (void*)(span->_pageId << PAGE_SHIFT);
+		SystemFree(ptr);
+
+		//使用定长内存池释放
+		//delete span;
+		_spanPool.Delete(span);
+		return;
+	}
+	
 	//向前合并
 	while (true) {
 		//可以合并的前一个span的起始页号
@@ -109,7 +141,8 @@ void PageCache::ReleaseSpanToPageCache(Span* span) {
 
 		//前一个被合并后将其从链表中移除
 		_spanLists[prev->_n].Erase(prev);
-		delete prev;
+		//delete prev;
+		_spanPool.Delete(prev);
 	}
 
 	//向后合并
@@ -134,7 +167,8 @@ void PageCache::ReleaseSpanToPageCache(Span* span) {
 		span->_n += next->_n;
 
 		_spanLists[next->_n].Erase(next);
-		delete next;
+		//delete next;
+		_spanPool.Delete(next);
 	}
 
 	_spanLists[span->_n].PushFront(span);

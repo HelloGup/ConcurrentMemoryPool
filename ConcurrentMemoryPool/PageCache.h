@@ -1,5 +1,6 @@
 #pragma once
 #include "Common.h"
+#include "objectPool.h"
 
 class PageCache {
 public:
@@ -21,6 +22,8 @@ public:
 private:
 	//直接定值法哈希桶 0不用，最大给129页
 	SpanList _spanLists[PAGE_LIST_SIZE];
+
+	ObjectPool<Span> _spanPool;
 
 	std::unordered_map<PAGE_ID, Span*> _idSpanMap;
 

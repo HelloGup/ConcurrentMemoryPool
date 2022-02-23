@@ -30,10 +30,10 @@ static const size_t PAGE_LIST_SIZE = 129;
 //页的大小为8k，2^13
 static const size_t PAGE_SHIFT = 13;
 
-inline static void* SystemAlloc(size_t kpage) {
+inline static void* SystemAlloc(size_t byte_size) {
 #ifdef _WIN32
 	//自动对齐
-	void* ptr = VirtualAlloc(0, kpage, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	void* ptr = VirtualAlloc(0, byte_size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 
 #else
 	//Linux下brk/sbrk/mmap等
@@ -50,13 +50,23 @@ inline static void* SystemAlloc(size_t kpage) {
 	  当 increment 为零时，不会分配或释放空间，返回当前程序中断点的地址。
 	*/
 
-	void* ptr = sbrk(kpage);
+	void* ptr = sbrk(byte_size);
 
 #endif
 	if (ptr == nullptr) {
 		throw std::bad_alloc();
 	}
 	return ptr;
+}
+
+//堆上释放
+inline static void SystemFree(void* ptr)
+{
+#ifdef _WIN32
+	VirtualFree(ptr, 0, MEM_RELEASE);
+#else
+	// sbrk unmmap等
+#endif
 }
 
 //返回引用可以更改
@@ -174,8 +184,8 @@ public:
 			return _RoundUp(bytes, 8 * 1024);
 		}
 		else {
-			assert(false);
-			return -1;
+			//大于256k按最大对齐数对齐
+			return _RoundUp(bytes, 1 << PAGE_SHIFT);
 		}
 	}
 
