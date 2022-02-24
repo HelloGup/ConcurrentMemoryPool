@@ -13,11 +13,17 @@ Span* CentralCache::GetOneSpan(SpanList& list, size_t byte_size) {
 		it = it->_next;
 	}
 
+	PageCache::GetInstance()->_mtx.lock();
 	//没有可使用的span则向PageCache申请页
 	Span* span = PageCache::GetInstance()->NewSpan(SizeClass::NumMovePage(byte_size));
+	//将该span标注为使用，防止其他线程合并了
 	span->_isUse = true;
+	//更新该span切分的大小
+	span->_objectSize = byte_size;
+	PageCache::GetInstance()->_mtx.unlock();
 
 	//将申请到的大块内存切分为_freeList小块内存
+
 	//char*方便+；大块内存的起始地址 = 起始页*页大小
 	char* start = (char*)(span->_pageId << PAGE_SHIFT);
 	//大块内存的结束地址 = 起始地址+span的大小（维护的页数*页大小）
@@ -25,7 +31,8 @@ Span* CentralCache::GetOneSpan(SpanList& list, size_t byte_size) {
 
 	//_freeList = 起始页 然后每byte_size连接下一个地址
 	span->_freeList = start;
-	while (start + byte_size != end) {
+	//start+的过程中可能会跳过end，总大小可能并不能整除小块内存
+	while (start + byte_size < end) {
 		NextObj(start) = start + byte_size;
 		start += byte_size;
 	}

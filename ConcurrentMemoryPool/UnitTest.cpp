@@ -28,18 +28,18 @@ void TestConcurrentAlloc1() {
 
 void BigAlloc() {
 	void* ptr1 = ConcurrentAlloc(257 * 1024);//大于256k，但pageCahe的页数还可以申请
-	ConcurrentFree(ptr1, 257 * 1024);
+	ConcurrentFree(ptr1);
 
 	void* ptr2 = ConcurrentAlloc(129 * 8 * 1024);//pageCache的页数页无法申请
-	ConcurrentFree(ptr2, 129 << PAGE_SHIFT);
+	ConcurrentFree(ptr2);
 }
 
-int main() {
-
-	//TestObjectPool();
-	//TLSTest();
-
-	TestConcurrentAlloc1();
-	
-	return 0;
-}
+//int main() {
+//
+//	//TestObjectPool();
+//	//TLSTest();
+//
+//	TestConcurrentAlloc1();
+//	
+//	return 0;
+//}

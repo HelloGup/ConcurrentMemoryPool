@@ -94,7 +94,7 @@ public:
 
 	void* pop() {
 		assert(_freeList);
-		void* obj = _freeList;//这里他返回错了
+		void* obj = _freeList;
 		void* next = NextObj(_freeList);
 		_freeList = next;
 
@@ -110,6 +110,7 @@ public:
 		size_t i = 0;
 		while (i < n - 1) {
 			end = NextObj(end);
+			++i;
 		}
 		_freeList = NextObj(end);
 		NextObj(end) = nullptr;
@@ -254,7 +255,7 @@ public:
 		size_t batchNum = NumMoveSize(byte_size);
 
 		//根据需要的小块内存大小算出需要多少页
-		size_t page_num = batchNum * byte_size >> PAGE_SHIFT;
+		size_t page_num = (batchNum * byte_size) >> PAGE_SHIFT;
 		
 		//最少给一页
 		if (page_num == 0) {
@@ -294,6 +295,8 @@ struct Span {
 	void* _freeList = nullptr;//切好的小块内存自由链表
 
 	bool _isUse = false;//是否被使用
+
+	size_t _objectSize;//切好的小对象的大小
 };
 
 //带头双向循环链表
